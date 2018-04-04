@@ -1,35 +1,36 @@
 
 'use strict';
 
-import { NativeModules, NativeAppEventEmitter, NetInfo, Platform } from 'react-native';
+import { NativeModules, NativeEventEmitter, NetInfo, Platform } from 'react-native';
 import invariant from 'invariant';
 
-var _eventBroadcastNames = [
+const RNOneSignal = NativeModules.OneSignal;
+
+var oneSignalEventEmitter = new NativeEventEmitter(RNOneSignal);
+
+const eventBroadcastNames = [
     'OneSignal-remoteNotificationReceived',
     'OneSignal-remoteNotificationOpened',
-    'OneSignal-remoteNotificationsRegistered',
-    'OneSignal-idsAvailable'
+    'OneSignal-idsAvailable',
+    'OneSignal-emailSubscription'
 ];
 
-var _eventNames = [ "received", "opened", "registered", "ids" ];
+var _eventNames = [ "received", "opened", "ids", "emailSubscription"];
 
 var _notificationHandler = new Map();
 var _notificationCache = new Map();
 var _listeners = [];
 
-for(var i = 0; i < _eventBroadcastNames.length; i++) {
-    var eventBroadcastName = _eventBroadcastNames[i];
+for(var i = 0; i < eventBroadcastNames.length; i++) {
+    var eventBroadcastName = eventBroadcastNames[i];
     var eventName = _eventNames[i];
 
     _listeners[eventName] = handleEventBroadcast(eventName, eventBroadcastName)
 }
 
-var RNOneSignal = NativeModules.OneSignal;
-
 function handleEventBroadcast(type, broadcast) {
-    return NativeAppEventEmitter.addListener(
+    return oneSignalEventEmitter.addListener(
         broadcast, (notification) => { 
-
             // Check if we have added listener for this type yet
             // Cache the result first if we have not.
             var handler = _notificationHandler.get(type);
@@ -63,24 +64,24 @@ export default class OneSignal {
         // Listen to events of notification received, opened, device registered and IDSAvailable.
 
         invariant(
-            type === 'received' || type === 'opened' || type === 'registered' || type === 'ids',
-            'OneSignal only supports `received`, `opened`, `registered`, and `ids` events'
+            type === 'received' || type === 'opened' || type === 'ids' || type == 'emailSubscription',
+            'OneSignal only supports `received`, `opened`, and `ids` events'
         );
 
         _notificationHandler.set(type, handler);
 
         // Check if there is a cache for this type of event
         var cache = _notificationCache.get(type);
-        if (cache) {
+        if (handler && cache) {
             handler(cache);
             _notificationCache.delete(type);
         }
     }
 
-    static removeEventListener(type: any, handler: Function) {
+    static removeEventListener(type, handler) {
         invariant(
-            type === 'received' || type === 'opened' || type === 'registered' || type === 'ids',
-            'OneSignal only supports `received`, `opened`, `registered`, and `ids` events'
+            type === 'received' || type === 'opened' || type === 'ids' || type == 'emailSubscription',
+            'OneSignal only supports `received`, `opened`, and `ids` events'
         );
 
         _notificationHandler.delete(type);
@@ -150,6 +151,14 @@ export default class OneSignal {
         }
     }
 
+    static promptForPushNotificationPermissions(callback) {
+       if (Platform.OS === 'ios') {
+         RNOneSignal.promptForPushNotificationPermissions(callback);
+       } else {
+          console.log('This function is not supported on Android');
+       }
+    }
+
     static getPermissionSubscriptionState(callback: Function) {
         invariant(
             typeof callback === 'function',
@@ -190,6 +199,34 @@ export default class OneSignal {
         }
     }
 
+    static setEmail(email, emailAuthCode, callback) {
+        if (emailAuthCode == undefined) {
+            //emailAuthCode is an optional parameter
+            //since JS does not support function overloading,
+            //unauthenticated setEmail calls will have emailAuthCode as the callback
+
+            RNOneSignal.setUnauthenticatedEmail(email, function(){});
+        } else if (callback == undefined && typeof emailAuthCode == 'function') {
+            RNOneSignal.setUnauthenticatedEmail(email, emailAuthCode);
+        } else if (callback == undefined) {
+            RNOneSignal.setEmail(email, emailAuthCode, function(){});
+        } else {
+            RNOneSignal.setEmail(email, emailAuthCode, callback);
+        }
+    }
+
+    static logoutEmail(callback) {
+        invariant(
+            typeof callback === 'function',
+            'Must provide a valid callback'
+        );
+        
+        RNOneSignal.logoutEmail(callback);
+    }
+    
+    static setLocationShared(shared) {
+        RNOneSignal.setLocationShared(shared);
+    }
 
     static setSubscription(enable) {
         RNOneSignal.setSubscription(enable);
@@ -200,11 +237,14 @@ export default class OneSignal {
         RNOneSignal.promptLocation();
     }
 
-    //Android only: Set Display option of the notifications. displayOption is of type OSInFocusDisplayOption
-    // 0 -> None, 1 -> InAppAlert, 2 -> Notification
     static inFocusDisplaying(displayOption) {
         if (Platform.OS === 'android') {
+            //Android: Set Display option of the notifications. displayOption is of type OSInFocusDisplayOption
+            // 0 -> None, 1 -> InAppAlert, 2 -> Notification
             RNOneSignal.inFocusDisplaying(displayOption);
+        } else {
+            //iOS: displayOption is a number, 0 -> None, 1 -> InAppAlert, 2 -> Notification
+            RNOneSignal.setInFocusDisplayType(displayOption);
         }
     }
 
